@@ -143,12 +143,14 @@ class DataServices:
 
     def analyze_error(self, error_code='A2D',flight_status='flight',database='./n38701.db'):
         conn = sqlite3.connect(database)
-
+        logger.info(f'Analyzing error {error_code}')
         # Example DataFrame
+        logger.debug(f'Reading error code {error_code} for flight status {flight_status} from db {database}')
         sql = f"select * from flight_data where flight_status = '{flight_status}'"
         df = pd.read_sql(sql=sql, con=conn)
 
         # Identify where "a2d" appears and reshape to long form
+        logger.debug('Reshaping data.')
         mask = df.set_index('timestamp') == error_code
         long_df = mask.reset_index().melt(id_vars='timestamp', var_name='Column', value_name=f'is_{error_code}')
 
@@ -156,6 +158,7 @@ class DataServices:
         long_df = long_df[long_df[f'is_{error_code}']]
 
         # Create interactive scatter plot
+        logger.debug('Creating plot.')
         fig = px.scatter(
             long_df,
             x='timestamp',
@@ -169,6 +172,7 @@ class DataServices:
         fig.update_traces(marker=dict(size=10))
         fig.update_layout(yaxis=dict(autorange='reversed'))  # optional: match heatmap style
 
+        logger.info(f'Launching view for "Occurrences of {error_code} Over Time"')
         fig.show()
 
     def _find_header_value(self, header, label):
