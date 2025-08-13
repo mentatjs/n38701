@@ -30,3 +30,7 @@ class TestDataServices(unittest.TestCase):
         data.load_csv(path='../data/Flt0552_20230418F.csv')
 
 
+    def test_analyze_error(self):
+        data = DataServices()
+        data.analyze_error(database='../n38701.db')
+        self.assertTrue(False)

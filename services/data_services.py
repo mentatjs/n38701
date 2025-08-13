@@ -4,9 +4,11 @@ import os
 import re
 import sqlite3
 import tempfile
+
 from itertools import islice
 
 import pandas as pd
+import plotly.express as px
 
 logger = logging.getLogger('cli')
 
@@ -99,6 +101,8 @@ class DataServices:
                 f_out.write(text)
                 f_out.flush()  # make sure all data is written
 
+            flight_status = self._get_flight_status(path)
+
             # Seek back to start so you can read it
             f_out.seek(0)
             head = list(islice(f_out, 14))
@@ -107,16 +111,23 @@ class DataServices:
                          self._find_header_value(head,'Zulu Time'),
                          self._find_header_value(head,'Flight Number'),
                          self._find_header_value(head,'Engine Hours'),
-                         self._find_header_value(head,'Tach Time'))]
+                         self._find_header_value(head,'Tach Time'),
+                         self._get_flight_status(file_name=path))]
             flight_df = pd.DataFrame(head_row,
                                      columns=['tracking_number', 'local_time', 'zulu_time', 'flight_number', 'hobbs',
-                                              'tach'])
+                                              'tach','flight_status'])
 
             f_out.seek(0)
             flight_data = pd.read_csv(f_out, skiprows=14)
             flight_data.columns = self.data_columns
             flight_data['flight_number'] = int(flight_df['flight_number'])
             flight_data['tracking_number'] = int(flight_df['tracking_number'])
+            flight_data['flight_status'] = flight_df['flight_status'].iloc[0]
+
+            base_date_str = pd.to_datetime(flight_df['local_time'].iloc[0], format='%Y/%m/%d %H:%M:%S').strftime('%m-%d-%Y')
+            flight_data['timestamp'] = flight_data['wall_time'].apply(
+                lambda t: pd.to_datetime(f"{base_date_str} {t}", format='%m-%d-%Y %H:%M:%S')
+            )
 
             # Connect to (or create) SQLite database file
             conn = sqlite3.connect('./n38701.db')
@@ -130,6 +141,35 @@ class DataServices:
             # Close the connection
             conn.close()
 
+    def analyze_error(self, error_code='A2D',flight_status='flight',database='./n38701.db'):
+        conn = sqlite3.connect(database)
+
+        # Example DataFrame
+        sql = f"select * from flight_data where flight_status = '{flight_status}'"
+        df = pd.read_sql(sql=sql, con=conn)
+
+        # Identify where "a2d" appears and reshape to long form
+        mask = df.set_index('timestamp') == error_code
+        long_df = mask.reset_index().melt(id_vars='timestamp', var_name='Column', value_name=f'is_{error_code}')
+
+        # Filter to only error_code occurrences
+        long_df = long_df[long_df[f'is_{error_code}']]
+
+        # Create interactive scatter plot
+        fig = px.scatter(
+            long_df,
+            x='timestamp',
+            y='Column',
+            color_discrete_sequence=['red'],
+            title=f'Occurrences of {error_code} Over Time',
+            labels={'timestamp': 'Time', 'Column': 'Column Name'},
+            hover_data={'timestamp': True, 'Column': True}
+        )
+
+        fig.update_traces(marker=dict(size=10))
+        fig.update_layout(yaxis=dict(autorange='reversed'))  # optional: match heatmap style
+
+        fig.show()
 
     def _find_header_value(self, header, label):
         match = next((item for item in header if item.startswith(label)), None)
@@ -143,4 +183,21 @@ class DataServices:
         else:
             raise ValueError(f'Cannot find {label} in header.')
 
+    def _get_flight_status(self, file_name):
+        # Mapping
+        code_map = {
+            'F': 'flight',
+            'E': 'engine_on_only',
+            'P': 'power_on_only'
+        }
+
+        # Regex to capture the letter before .csv
+        pattern = re.compile(r'([FEP])\.csv$', re.IGNORECASE)
+
+        match = pattern.search(file_name)
+        if match:
+            code = match.group(1).upper()
+            return code_map.get(code, 'unknown')
+
+        return "unknown"
 

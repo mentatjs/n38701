@@ -29,6 +29,7 @@ def get_arg_parser():
     # GENERAL
     general.add_argument("--load-directory", help="Load using csv format")
     general.add_argument("--load-file", help="Load using csv format")
+    general.add_argument("--analyze-error", help="Generate plot of error codes over time")
 
     return parser
 
@@ -46,6 +47,10 @@ def run():
         data.load_csv(path=args.load_file)
         return
 
+    if args.analyze_error:
+        error_code = args.analyze_error
+        data.analyze_error(error_code=error_code)
+        return
 
 def execute():
     try:
